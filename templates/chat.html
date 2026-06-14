@@ -1,0 +1,56 @@
+
+{% extends "base.html" %}
+{% block content %}
+<section style="padding: 50px 0;">
+    <div class="container">
+        <h1 style="color: #1a5d7a; margin-bottom: 20px;">💬 Общая переписка</h1>
+        <div class="chat-messages" id="chatMessages">
+            {% for msg in messages %}
+            <div class="message">
+                <span class="message-user">{{ msg.username }}</span>
+                <span class="message-time">{{ msg.time }}</span>
+                <p>{{ msg.text }}</p>
+                {% if msg.photo %}
+                    <img src="{{ msg.photo }}" class="media-preview">
+                {% endif %}
+                {% if msg.audio %}
+                    <audio controls src="{{ msg.audio }}"></audio>
+                {% endif %}
+                {% if msg.video %}
+                    <video controls src="{{ msg.video }}" class="media-preview"></video>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if user %}
+        <form action="/send_message" method="post" enctype="multipart/form-data">
+            <div class="chat-input-area">
+                <textarea name="message_text" rows="2" placeholder="Ваше сообщение..." required></textarea>
+            </div>
+            <div class="file-inputs">
+                <input type="file" name="photo" accept="image/*" placeholder="Фото">
+                <input type="file" name="audio" accept="audio/*" placeholder="Аудио">
+                <input type="file" name="video" accept="video/*" placeholder="Видео">
+            </div>
+            <button type="submit" class="btn" style="margin-top: 10px;">Отправить</button>
+        </form>
+        {% else %}
+        <p><a href="/login">Войдите</a>, чтобы участвовать в переписке</p>
+        {% endif %}
+    </div>
+</section>
+<script>
+    setInterval(() => {
+        fetch('/get_messages')
+            .then(res => res.json())
+            .then(data => {
+                const container = document.getElementById('chatMessages');
+                if (data.messages_html) {
+                    container.innerHTML = data.messages_html;
+                    container.scrollTop = container.scrollHeight;
+                }
+            });
+    }, 3000);
+</script>
+{% endblock %}

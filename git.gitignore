@@ -1,0 +1,6 @@
+.venv/
+session.json
+static/uploads/photos/
+static/uploads/audio/
+static/uploads/video/
+__pycache__/

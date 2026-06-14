@@ -1,0 +1,30 @@
+
+{% extends "base.html" %}
+{% block content %}
+<section style="padding: 50px 0;">
+    <div class="container">
+        <h1 style="color: #1a5d7a; margin-bottom: 30px;">🏠 Квартиры и дома на продажу</h1>
+        <div class="cards-grid">
+            {% for p in properties %}
+            <div class="property-card">
+                <h3>{{ p.title }}</h3>
+                <p><strong>📍 Локация:</strong> {{ p.location }}</p>
+                <p><strong>💰 Цена:</strong> {{ p.price }} ₽</p>
+                <p><strong>📐 Площадь:</strong> {{ p.area }} м²</p>
+                <p><strong>🏗️ Этаж:</strong> {{ p.floor }} / {{ p.total_floors }}</p>
+                <p><strong>🏠 Тип строения:</strong> {{ p.building_type }}</p>
+                <p><strong>📝 Описание:</strong> {{ p.description }}</p>
+                <p><strong>👤 Продавец:</strong> {{ p.seller_name }}</p>
+                {% if user and user.role == 'admin' %}
+                <form action="/delete_property/{{ p.id }}" method="post">
+                    <button type="submit" class="delete-btn">Удалить объявление</button>
+                </form>
+                {% endif %}
+            </div>
+            {% else %}
+            <p>Нет доступных объявлений.</p>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endblock %}

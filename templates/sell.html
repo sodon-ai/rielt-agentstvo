@@ -1,0 +1,57 @@
+
+{% extends "base.html" %}
+{% block content %}
+<section style="padding: 50px 0;">
+    <div class="container">
+        <h1 style="color: #1a5d7a; margin-bottom: 30px;">📝 Добавить объявление о продаже</h1>
+        {% if user and (user.role == 'seller' or user.role == 'admin') %}
+        <form action="/add_property" method="post" style="max-width: 600px; background: white; padding: 30px; border-radius: 20px;">
+            <div class="form-group">
+                <label>Название объекта</label>
+                <input type="text" name="title" required>
+            </div>
+            <div class="form-group">
+                <label>Локация (район/улица)</label>
+                <input type="text" name="location" required>
+            </div>
+            <div class="form-group">
+                <label>Цена (₽)</label>
+                <input type="number" name="price" required>
+            </div>
+            <div class="form-group">
+                <label>Площадь (м²)</label>
+                <input type="number" step="0.1" name="area" required>
+            </div>
+            <div class="form-group">
+                <label>Этаж</label>
+                <input type="number" name="floor" required>
+            </div>
+            <div class="form-group">
+                <label>Всего этажей в доме</label>
+                <input type="number" name="total_floors" required>
+            </div>
+            <div class="form-group">
+                <label>Тип строения</label>
+                <select name="building_type">
+                    <option>Кирпичный</option>
+                    <option>Панельный</option>
+                    <option>Монолитный</option>
+                    <option>Деревянный</option>
+                    <option>Блочный</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Описание</label>
+                <textarea name="description" rows="4"></textarea>
+            </div>
+            <button type="submit" class="btn">Опубликовать объявление</button>
+        </form>
+        {% else %}
+        <p style="color: red; background: white; padding: 20px; border-radius: 12px;">
+            ⚠️ Только продавцы и администраторы могут добавлять объявления.<br>
+            <a href="/register">Зарегистрируйтесь как продавец</a>
+        </p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
