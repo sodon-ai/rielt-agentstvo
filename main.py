@@ -7,13 +7,14 @@ import uuid
 import shutil
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 import re
 
 app = FastAPI(title="Риэлторское агентство by Гаун")
 
 # Создаём папки
 os.makedirs("static/uploads/photos", exist_ok=True)
+os.makedirs("static/uploads/property_photos", exist_ok=True)
 os.makedirs("data", exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -25,25 +26,46 @@ DATA_FILES = {
     "messages": "data/messages.json",
     "notifications": "data/notifications.json",
     "transactions": "data/transactions.json",
-    "deleted_messages": "data/deleted_messages.json"
+    "deleted_messages": "data/deleted_messages.json",
+    "reviews": "data/reviews.json",
+    "banned_users": "data/banned_users.json"
 }
 
 # Инициализация
 def init_data_files():
+    # Создаём админа с новыми данными
+    admin_exists = False
+    if os.path.exists(DATA_FILES["users"]):
+        with open(DATA_FILES["users"], "r", encoding="utf-8") as f:
+            users = json.load(f)
+            for u in users:
+                if u["username"] == "artem_gaun":
+                    admin_exists = True
+                    break
+    
     for name, path in DATA_FILES.items():
         if not os.path.exists(path):
             with open(path, "w", encoding="utf-8") as f:
                 if name == "users":
-                    json.dump([{
-                        "id": 1,
-                        "username": "admin",
-                        "password": "admin123",
-                        "name": "Администратор",
-                        "role": "admin",
-                        "email": "",
-                        "is_active": True,
-                        "created_at": datetime.now().isoformat()
-                    }], f, ensure_ascii=False, indent=2)
+                    if not admin_exists:
+                        json.dump([{
+                            "id": 1,
+                            "username": "artem_gaun",
+                            "password": "Admin_321",
+                            "nickname": "Артём Гаун",
+                            "name": "Администратор",
+                            "role": "admin",
+                            "email": "",
+                            "is_active": True,
+                            "is_banned": False,
+                            "created_at": datetime.now().isoformat()
+                        }], f, ensure_ascii=False, indent=2)
+                    else:
+                        json.dump([], f, ensure_ascii=False, indent=2)
+                elif name == "banned_users":
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                elif name == "reviews":
+                    json.dump([], f, ensure_ascii=False, indent=2)
                 else:
                     json.dump([], f, ensure_ascii=False, indent=2)
 
@@ -67,19 +89,77 @@ def get_user_by_username(username):
             return user
     return None
 
-def create_user(username, password, name, role):
+def get_user_by_nickname(nickname):
+    users = load_data(DATA_FILES["users"])
+    for user in users:
+        if user.get("nickname") == nickname:
+            return user
+    return None
+
+def is_user_banned(username):
+    banned = load_data(DATA_FILES["banned_users"])
+    for b in banned:
+        if b["username"] == username:
+            return True
+    return False
+
+def ban_user(username, banned_by):
+    banned = load_data(DATA_FILES["banned_users"])
+    if not any(b["username"] == username for b in banned):
+        banned.append({
+            "id": get_next_id(banned),
+            "username": username,
+            "banned_by": banned_by,
+            "banned_at": datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        })
+        save_data(DATA_FILES["banned_users"], banned)
+        # Деактивируем пользователя
+        users = load_data(DATA_FILES["users"])
+        for u in users:
+            if u["username"] == username:
+                u["is_active"] = False
+                u["is_banned"] = True
+                break
+        save_data(DATA_FILES["users"], users)
+
+def unban_user(username):
+    banned = load_data(DATA_FILES["banned_users"])
+    banned = [b for b in banned if b["username"] != username]
+    save_data(DATA_FILES["banned_users"], banned)
+    users = load_data(DATA_FILES["users"])
+    for u in users:
+        if u["username"] == username:
+            u["is_active"] = True
+            u["is_banned"] = False
+            break
+    save_data(DATA_FILES["users"], users)
+
+def get_banned_users():
+    return load_data(DATA_FILES["banned_users"])
+
+def create_user(username, password, nickname, name, role):
     users = load_data(DATA_FILES["users"])
     new_id = get_next_id(users)
     users.append({
         "id": new_id,
         "username": username,
         "password": password,
+        "nickname": nickname,
         "name": name,
         "role": role,
         "email": "",
         "is_active": True,
+        "is_banned": False,
         "created_at": datetime.now().isoformat()
     })
+    save_data(DATA_FILES["users"], users)
+
+def update_user_nickname(username, new_nickname):
+    users = load_data(DATA_FILES["users"])
+    for user in users:
+        if user["username"] == username:
+            user["nickname"] = new_nickname
+            break
     save_data(DATA_FILES["users"], users)
 
 def update_user_email(username, email):
@@ -96,7 +176,7 @@ def get_all_users():
 def get_all_properties():
     return load_data(DATA_FILES["properties"])
 
-def add_property(title, location, price, area, floor, total_floors, building_type, description, seller_name, seller_username):
+def add_property(title, location, price, area, floor, total_floors, building_type, description, seller_name, seller_username, photos=None):
     properties = load_data(DATA_FILES["properties"])
     new_id = get_next_id(properties)
     properties.append({
@@ -111,6 +191,7 @@ def add_property(title, location, price, area, floor, total_floors, building_typ
         "description": description,
         "seller_name": seller_name,
         "seller_username": seller_username,
+        "photos": photos or [],
         "created_at": datetime.now().isoformat()
     })
     save_data(DATA_FILES["properties"], properties)
@@ -123,12 +204,13 @@ def delete_property_by_id(prop_id):
 def get_all_messages():
     return load_data(DATA_FILES["messages"])
 
-def add_message(username, text, time, photo):
+def add_message(username, nickname, text, time, photo):
     messages = load_data(DATA_FILES["messages"])
     new_id = get_next_id(messages)
     messages.append({
         "id": new_id,
         "username": username,
+        "nickname": nickname,
         "text": text,
         "time": time,
         "photo": photo
@@ -150,6 +232,7 @@ def delete_message_by_id(msg_id, deleted_by):
         deleted_msgs.append({
             "id": new_id,
             "username": msg_to_delete["username"],
+            "nickname": msg_to_delete["nickname"],
             "text": msg_to_delete["text"],
             "time": msg_to_delete["time"],
             "photo": msg_to_delete.get("photo"),
@@ -159,6 +242,9 @@ def delete_message_by_id(msg_id, deleted_by):
         save_data(DATA_FILES["deleted_messages"], deleted_msgs)
         messages = [m for m in messages if m["id"] != msg_id]
         save_data(DATA_FILES["messages"], messages)
+
+def clear_deleted_messages():
+    save_data(DATA_FILES["deleted_messages"], [])
 
 def get_deleted_messages():
     return load_data(DATA_FILES["deleted_messages"])
@@ -205,7 +291,23 @@ def add_transaction(buyer, seller, property_title, price, type, date):
 def get_all_transactions():
     return load_data(DATA_FILES["transactions"])
 
-current_user = None
+def add_review(property_id, username, nickname, rating, comment):
+    reviews = load_data(DATA_FILES["reviews"])
+    new_id = get_next_id(reviews)
+    reviews.append({
+        "id": new_id,
+        "property_id": property_id,
+        "username": username,
+        "nickname": nickname,
+        "rating": rating,
+        "comment": comment,
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M")
+    })
+    save_data(DATA_FILES["reviews"], reviews)
+
+def get_reviews_by_property(property_id):
+    reviews = load_data(DATA_FILES["reviews"])
+    return [r for r in reviews if r["property_id"] == property_id]
 
 def is_valid_email(email):
     if not email:
@@ -213,14 +315,14 @@ def is_valid_email(email):
     pattern = r'^[a-zA-Z0-9_.+-]+@(mail\.ru|gmail\.com)$'
     return re.match(pattern, email) is not None
 
-# HTML
+# ============= HTML ШАБЛОН =============
 def render_html(content, user=None, error=None, success=None):
     user_html = ""
     if user:
         notif_list = get_notifications_by_user(user["username"])
         unread = len([n for n in notif_list if not n.get("read")])
         badge = f'<span style="background:red;color:white;border-radius:50%;padding:2px 6px;font-size:12px;margin-left:5px;">{unread}</span>' if unread > 0 else ''
-        user_html = f'<span>👤 {user["name"]} ({user["role"]})</span><a href="/profile" class="btn">📋 Профиль{badge}</a><a href="/logout" class="btn">Выйти</a>'
+        user_html = f'<span>👤 {user.get("nickname", user["name"])} ({user["role"]})</span><a href="/profile" class="btn">📋 Профиль{badge}</a><a href="/logout" class="btn">Выйти</a>'
     else:
         user_html = '<a href="/login" class="btn">Вход</a><a href="/register" class="btn">Регистрация</a>'
     
@@ -229,102 +331,57 @@ def render_html(content, user=None, error=None, success=None):
     
     return f'''<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Риэлторское агентство by Гаун</title>
-    <style>
-        *{{margin:0;padding:0;box-sizing:border-box;}}
-        body{{font-family:Segoe UI, sans-serif;background:#f0f7fa;color:#2c3e50;}}
-        :root{{--light-blue:#6ec8e6;--medium-blue:#4ab0d0;--dark-blue:#2c7aa0;}}
-        header{{background:white;box-shadow:0 2px 15px rgba(0,0,0,0.08);position:sticky;top:0;}}
-        .top-banner{{background:var(--light-blue);padding:8px 0;text-align:center;font-size:13px;color:#1a4d66;}}
-        .container{{max-width:1200px;margin:0 auto;padding:0 25px;}}
-        .header-main{{display:flex;justify-content:space-between;align-items:center;padding:20px 0;flex-wrap:wrap;gap:15px;}}
-        .logo-area{{display:flex;align-items:center;gap:15px;}}
-        .logo-icon{{background:var(--light-blue);width:55px;height:55px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;color:white;}}
-        .logo-text h1{{font-size:18px;color:#1a4d66;}}
-        .logo-text h2{{font-size:22px;color:var(--dark-blue);}}
-        .slogan{{font-size:13px;color:var(--medium-blue);}}
-        nav ul{{display:flex;list-style:none;gap:25px;}}
-        nav a{{text-decoration:none;color:#2c3e50;font-weight:600;padding:8px 12px;border-radius:8px;}}
-        nav a:hover{{background:#e0f2f8;color:var(--dark-blue);}}
-        .user-info{{display:flex;gap:15px;align-items:center;}}
-        .btn{{background:var(--light-blue);padding:8px 20px;border-radius:25px;text-decoration:none;color:#1a4d66;font-weight:bold;border:none;cursor:pointer;display:inline-block;}}
-        .btn:hover{{background:var(--medium-blue);}}
-        .hero{{background:linear-gradient(120deg,#e0f2f8 0%,white 80%);padding:50px 0;text-align:center;}}
-        .hero h1{{font-size:42px;color:#1a5d7a;}}
-        .services-block{{background:white;padding:50px 0;border-bottom:1px solid #d4e8f0;}}
-        .services-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:30px;margin-top:30px;}}
-        .service-box{{background:#fafeff;border-radius:16px;padding:25px;border-left:4px solid var(--light-blue);}}
-        .service-box h3{{color:var(--dark-blue);font-size:22px;}}
-        .service-box ul{{list-style:none;}}
-        .service-box li{{padding:8px 0 8px 25px;position:relative;}}
-        .service-box li:before{{content:"•";color:var(--light-blue);position:absolute;left:5px;}}
-        .about-section{{background:#f9fdfe;padding:50px 0;border-top:1px solid #d4e8f0;border-bottom:1px solid #d4e8f0;}}
-        .about-section h2{{font-size:32px;color:#1a5d7a;}}
-        .about-section h3{{font-size:26px;color:var(--dark-blue);margin:30px 0 15px;}}
-        .about-section p{{font-size:16px;line-height:1.7;color:#3a5a72;margin-bottom:18px;}}
-        .about-list{{list-style:none;}}
-        .about-list li{{padding:10px 0 10px 28px;position:relative;}}
-        .about-list li:before{{content:"•";color:var(--light-blue);font-size:22px;position:absolute;left:5px;}}
-        .cards-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:25px;padding:40px 0;}}
-        .property-card{{background:white;border-radius:16px;padding:20px;border-left:4px solid var(--light-blue);}}
-        .property-card h3{{color:var(--dark-blue);}}
-        .property-actions{{display:flex;gap:10px;margin-top:15px;}}
-        .delete-btn{{background:#ff6b6b;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}
-        .rent-btn{{background:#4caf50;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}
-        .buy-btn{{background:var(--light-blue);color:#1a4d66;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}
-        .delete-msg-btn{{background:#ff6b6b;color:white;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;}}
-        .form-group{{margin-bottom:15px;}}
-        .form-group label{{display:block;margin-bottom:5px;font-weight:bold;}}
-        .form-group input,.form-group textarea,.form-group select{{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;}}
-        .chat-messages{{height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:12px;padding:15px;background:#f9f9f9;margin-bottom:15px;}}
-        .message{{margin-bottom:15px;padding:10px;background:white;border-radius:10px;}}
-        .message-user{{font-weight:bold;color:var(--dark-blue);}}
-        .message-time{{font-size:11px;color:#999;margin-left:10px;}}
-        .message-header{{display:flex;justify-content:space-between;margin-bottom:8px;}}
-        .media-preview{{max-width:200px;max-height:150px;margin-top:10px;border-radius:8px;}}
-        .chat-input-area{{display:flex;gap:10px;}}
-        .chat-input-area textarea{{flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;}}
-        .file-inputs{{margin-top:10px;}}
-        .error{{color:red;background:#ffe0e0;padding:10px;border-radius:8px;margin-bottom:15px;}}
-        .success{{color:green;background:#e0ffe0;padding:10px;border-radius:8px;margin-bottom:15px;}}
-        .notification{{background:white;padding:12px;margin-bottom:10px;border-radius:10px;border-left:4px solid var(--light-blue);}}
-        .transaction-item,.user-item,.deleted-item{{background:white;padding:12px;margin-bottom:10px;border-radius:10px;border-left:4px solid var(--light-blue);}}
-        .deleted-item{{border-left-color:#ff6b6b;background:#fff8f0;}}
-        .info-section{{background:white;border-radius:24px;padding:30px;margin-bottom:30px;}}
-        .info-section h2{{color:#1a5d7a;margin-bottom:20px;}}
-        footer{{background:#1e3a47;color:#cbdce6;padding:30px 0;text-align:center;}}
-        @media (max-width:768px){{.header-main{{flex-direction:column;text-align:center;}}nav ul{{justify-content:center;}}}}
-    </style>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Риэлторское агентство by Гаун</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}body{{font-family:Segoe UI,sans-serif;background:#f0f7fa;color:#2c3e50;}}:root{{--light-blue:#6ec8e6;--medium-blue:#4ab0d0;--dark-blue:#2c7aa0;}}header{{background:white;box-shadow:0 2px 15px rgba(0,0,0,0.08);position:sticky;top:0;z-index:100;}}.top-banner{{background:var(--light-blue);padding:8px 0;text-align:center;font-size:13px;color:#1a4d66;}}.container{{max-width:1200px;margin:0 auto;padding:0 25px;}}.header-main{{display:flex;justify-content:space-between;align-items:center;padding:20px 0;flex-wrap:wrap;gap:15px;}}.logo-area{{display:flex;align-items:center;gap:15px;}}.logo-icon{{background:var(--light-blue);width:55px;height:55px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;color:white;}}.logo-text h1{{font-size:18px;color:#1a4d66;}}.logo-text h2{{font-size:22px;color:var(--dark-blue);}}.slogan{{font-size:13px;color:var(--medium-blue);}}nav ul{{display:flex;list-style:none;gap:25px;flex-wrap:wrap;}}nav a{{text-decoration:none;color:#2c3e50;font-weight:600;padding:8px 12px;border-radius:8px;}}nav a:hover{{background:#e0f2f8;color:var(--dark-blue);}}.user-info{{display:flex;gap:15px;align-items:center;flex-wrap:wrap;}}.btn{{background:var(--light-blue);padding:8px 20px;border-radius:25px;text-decoration:none;color:#1a4d66;font-weight:bold;border:none;cursor:pointer;display:inline-block;}}.btn:hover{{background:var(--medium-blue);}}.hero{{background:linear-gradient(120deg,#e0f2f8 0%,white 80%);padding:50px 0;text-align:center;}}.hero h1{{font-size:42px;color:#1a5d7a;}}.services-block{{background:white;padding:50px 0;border-bottom:1px solid #d4e8f0;}}.services-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:30px;margin-top:30px;}}.service-box{{background:#fafeff;border-radius:16px;padding:25px;box-shadow:0 4px 12px rgba(0,0,0,0.05);border-left:4px solid var(--light-blue);}}.service-box h3{{color:var(--dark-blue);font-size:22px;margin-bottom:15px;}}.service-box ul{{list-style:none;padding-left:0;}}.service-box li{{padding:8px 0 8px 25px;position:relative;}}.service-box li:before{{content:"•";color:var(--light-blue);font-size:18px;position:absolute;left:5px;}}.about-section{{background:#f9fdfe;padding:50px 0;border-top:1px solid #d4e8f0;border-bottom:1px solid #d4e8f0;}}.about-section h2{{font-size:32px;color:#1a5d7a;margin-bottom:25px;}}.about-section h3{{font-size:26px;color:var(--dark-blue);margin:30px 0 15px 0;}}.about-section p{{font-size:16px;line-height:1.7;color:#3a5a72;margin-bottom:18px;}}.about-list{{list-style:none;padding-left:0;}}.about-list li{{padding:10px 0 10px 28px;position:relative;font-size:16px;line-height:1.5;color:#3a5a72;}}.about-list li:before{{content:"•";color:var(--light-blue);font-size:22px;position:absolute;left:5px;top:8px;}}.cards-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:25px;padding:40px 0;}}.property-card{{background:white;border-radius:16px;padding:20px;box-shadow:0 4px 12px rgba(0,0,0,0.08);border-left:4px solid var(--light-blue);transition:0.2s;}}.property-card:hover{{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.12);}}.property-card h3{{color:var(--dark-blue);margin-bottom:10px;}}.property-photos{{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}}.property-photo{{width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;transition:0.2s;}}.property-photo:hover{{transform:scale(1.05);}}.property-actions{{display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;}}.delete-btn{{background:#ff6b6b;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}.rent-btn{{background:#4caf50;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}.buy-btn{{background:var(--light-blue);color:#1a4d66;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}.ban-btn{{background:#ff9800;color:white;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;}}.unban-btn{{background:#4caf50;color:white;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;}}.delete-msg-btn{{background:#ff6b6b;color:white;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:10px;}}.form-group{{margin-bottom:15px;}}.form-group label{{display:block;margin-bottom:5px;font-weight:bold;}}.form-group input,.form-group textarea,.form-group select{{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;}}.chat-messages{{height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:12px;padding:15px;background:#f9f9f9;margin-bottom:15px;}}.message{{margin-bottom:15px;padding:10px;background:white;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.1);}}.message-user{{font-weight:bold;color:var(--dark-blue);}}.message-time{{font-size:11px;color:#999;margin-left:10px;}}.message-header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}}.message-actions{{display:flex;gap:5px;}}.media-preview{{max-width:200px;max-height:150px;margin-top:10px;border-radius:8px;}}.chat-input-area{{display:flex;gap:10px;flex-wrap:wrap;}}.chat-input-area textarea{{flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;}}.file-inputs{{margin-top:10px;}}.error{{color:red;background:#ffe0e0;padding:10px;border-radius:8px;margin-bottom:15px;}}.success{{color:green;background:#e0ffe0;padding:10px;border-radius:8px;margin-bottom:15px;}}.notification,.transaction-item,.user-item,.deleted-item{{background:white;padding:12px;margin-bottom:10px;border-radius:10px;border-left:4px solid var(--light-blue);}}.deleted-item{{border-left-color:#ff6b6b;background:#fff8f0;}}.info-section{{background:white;border-radius:24px;padding:30px;margin-bottom:30px;box-shadow:0 4px 12px rgba(0,0,0,0.05);}}.info-section h2{{color:#1a5d7a;margin-bottom:20px;}}.reviews-section{{margin-top:15px;padding-top:15px;border-top:1px solid #eee;}}.review{{background:#f9f9f9;padding:10px;margin-bottom:10px;border-radius:8px;}}.stars{{color:#ffc107;font-size:16px;}}.modal{{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.8);}}.modal-content{{margin:auto;display:block;max-width:90%;max-height:90%;margin-top:50px;}}.close{{position:absolute;top:20px;right:35px;color:white;font-size:40px;font-weight:bold;cursor:pointer;}}footer{{background:#1e3a47;color:#cbdce6;padding:30px 0;text-align:center;margin-top:40px;}}@media (max-width:768px){{.header-main{{flex-direction:column;text-align:center;}}nav ul{{justify-content:center;}}.cards-grid{{grid-template-columns:1fr;}}}}
+</style>
 </head>
 <body>
-<header>
-    <div class="top-banner">🏡 Лянтор | Ваш надёжный партнёр в мире недвижимости</div>
-    <div class="container header-main">
-        <div class="logo-area">
-            <div class="logo-icon">🏢</div>
-            <div class="logo-text"><h1>РИЭЛТОРСКОЕ АГЕНТСТВО</h1><h2>BY ГАУН</h2><div class="slogan">МЕСТО, ГДЕ ВЫ СТАНЕТЕ СОБОЙ</div></div>
-        </div>
-        <nav><ul><li><a href="/">Главная</a></li><li><a href="/buy">Покупка квартиры</a></li><li><a href="/sell">Продажа</a></li><li><a href="/info">Сведения</a></li><li><a href="/chat">Переписка</a></li><li><a href="/contacts">Контакты</a></li></ul></nav>
-        <div class="user-info">{user_html}</div>
-    </div>
-</header>
+<header><div class="top-banner">🏡 Лянтор | Ваш надёжный партнёр в мире недвижимости</div>
+<div class="container header-main"><div class="logo-area"><div class="logo-icon">🏢</div><div class="logo-text"><h1>РИЭЛТОРСКОЕ АГЕНТСТВО</h1><h2>BY ГАУН</h2><div class="slogan">МЕСТО, ГДЕ ВЫ СТАНЕТЕ СОБОЙ</div></div></div>
+<nav><ul><li><a href="/">Главная</a></li><li><a href="/buy">Покупка квартиры</a></li><li><a href="/sell">Продажа</a></li><li><a href="/info">Сведения</a></li><li><a href="/chat">Переписка</a></li><li><a href="/contacts">Контакты</a></li></ul></nav>
+<div class="user-info">{user_html}</div></div></header>
 <main>{err_html}{suc_html}{content}</main>
 <footer><div class="container"><p>© 2025 Риэлторское агентство by Гаун | Лянтор</p></div></footer>
 </body>
 </html>'''
 
+# ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
+
+def get_user_from_session(request: Request):
+    session_user = request.cookies.get("user_session")
+    if session_user:
+        try:
+            user_data = json.loads(session_user)
+            return user_data
+        except:
+            return None
+    return None
+
+def set_user_session(response, user_data):
+    response.set_cookie(key="user_session", value=json.dumps(user_data), max_age=86400, httponly=True)
+
+# ============= МАРШРУТЫ =============
+
 @app.get("/", response_class=HTMLResponse)
-async def index():
-    global current_user
+async def index(request: Request):
+    user = get_user_from_session(request)
+    if user and is_user_banned(user["username"]):
+        response = RedirectResponse("/logout", 303)
+        response.delete_cookie("user_session")
+        return response
+    
     props = get_all_properties()
     cards = ""
     for p in props[-6:]:
-        cards += f'<div class="property-card"><h3>{p["title"]}</h3><p><strong>📍 Локация:</strong> {p["location"]}</p><p><strong>💰 Цена:</strong> {p["price"]} ₽</p><p><strong>📐 Площадь:</strong> {p["area"]} м²</p><p><strong>🏗️ Этаж:</strong> {p["floor"]} / {p["total_floors"]}</p><p><strong>👤 Продавец:</strong> {p["seller_name"]}</p>'
-        if current_user and current_user["role"] == "admin":
-            cards += f'<form action="/delete_property/{p["id"]}" method="post"><button type="submit" class="delete-btn">Удалить</button></form>'
+        # Превью фото
+        photos_html = ""
+        if p.get("photos") and len(p["photos"]) > 0:
+            photos_html = f'<div class="property-photos"><img src="{p["photos"][0]}" class="property-photo" onclick="openModal(this.src)"></div>'
+        
+        cards += f'<div class="property-card"><h3>{p["title"]}</h3><p><strong>📍 Локация:</strong> {p["location"]}</p><p><strong>💰 Цена:</strong> {p["price"]} ₽</p><p><strong>📐 Площадь:</strong> {p["area"]} м²</p><p><strong>🏗️ Этаж:</strong> {p["floor"]} / {p["total_floors"]}</p><p><strong>👤 Продавец:</strong> {p["seller_name"]}</p>{photos_html}'
+        if user and user.get("role") == "admin":
+            cards += f'<form action="/delete_property/{p["id"]}" method="post"><button type="submit" class="delete-btn" onclick="return confirm(\'Удалить объявление?\')">Удалить</button></form>'
         cards += '</div>'
     if not props:
         cards = '<p>Пока нет объявлений. Станьте продавцом и добавьте первое!</p>'
@@ -337,104 +394,184 @@ async def index():
     <h3>Агентство недвижимости г. Лянтора</h3><p>Работа риэлторского агентства заточена под то, чтобы помочь клиенту купить или продать свою недвижимость и сделать это максимально выгодно и комфортно.</p>
     <p>Чтобы любая сделка прошла безопасно на всех этапах, при выборе риэлторского агентства нужно учитывать такой важный фактор как репутация компании. Обращаясь в Агентство «by Гаун», можно быть уверенным в том, что ваши задачи будут решать профессионалы рынка.</p>
     <h3>Услуги риэлторского агентства в Лянторе</h3><ul class="about-list"><li><strong>Качественный подбор недвижимости</strong> от квалифицированных специалистов</li><li><strong>Быстрая и выгодная продажа объекта</strong> по максимальной цене</li><li><strong>Юридические услуги</strong> – сопровождение сделки и контроль документов</li></ul></div></section>
-    <section style="padding:50px 0;"><div class="container"><h2 style="text-align:center;">Доступные объявления</h2><div class="cards-grid">{cards}</div></div></section>'''
-    return HTMLResponse(render_html(content, user=current_user))
+    <section style="padding:50px 0;"><div class="container"><h2 style="text-align:center;">Доступные объявления</h2><div class="cards-grid">{cards}</div></div></section>
+    <div id="imageModal" class="modal" onclick="closeModal()"><span class="close">&times;</span><img class="modal-content" id="modalImage"></div>
+    <script>function openModal(src){{document.getElementById("modalImage").src=src;document.getElementById("imageModal").style.display="block";}}function closeModal(){{document.getElementById("imageModal").style.display="none";}}</script>'''
+    return HTMLResponse(render_html(content, user=user))
 
 @app.get("/buy", response_class=HTMLResponse)
-async def buy():
-    global current_user
+async def buy(request: Request):
+    user = get_user_from_session(request)
+    if user and is_user_banned(user["username"]):
+        response = RedirectResponse("/logout", 303)
+        response.delete_cookie("user_session")
+        return response
+    
     props = get_all_properties()
     cards = ""
     for p in props:
-        cards += f'<div class="property-card"><h3>{p["title"]}</h3><p><strong>📍 Локация:</strong> {p["location"]}</p><p><strong>💰 Цена:</strong> {p["price"]} ₽</p><p><strong>📐 Площадь:</strong> {p["area"]} м²</p><p><strong>🏗️ Этаж:</strong> {p["floor"]} / {p["total_floors"]}</p><p><strong>🏠 Тип:</strong> {p["building_type"]}</p><p><strong>📝 Описание:</strong> {p["description"]}</p><p><strong>👤 Продавец:</strong> {p["seller_name"]}</p><div class="property-actions">'
-        if current_user:
-            if current_user["role"] == "client":
-                cards += f'<form action="/buy_property/{p["id"]}" method="post"><button type="submit" class="buy-btn">💰 Купить</button></form><form action="/rent_property/{p["id"]}" method="post"><button type="submit" class="rent-btn">🔑 Арендовать</button></form>'
-            elif current_user["role"] == "admin":
-                cards += f'<form action="/delete_property/{p["id"]}" method="post"><button type="submit" class="delete-btn">Удалить</button></form>'
-        cards += '</div></div>'
+        # Фото
+        photos_html = ""
+        if p.get("photos") and len(p["photos"]) > 0:
+            photos_html = '<div class="property-photos">'
+            for photo in p["photos"][:3]:
+                photos_html += f'<img src="{photo}" class="property-photo" onclick="openModal(this.src)">'
+            photos_html += '</div>'
+        
+        # Отзывы
+        reviews = get_reviews_by_property(p["id"])
+        reviews_html = '<div class="reviews-section"><strong>⭐ Отзывы:</strong>'
+        if reviews:
+            for r in reviews[-3:]:
+                stars = '★' * r["rating"] + '☆' * (5 - r["rating"])
+                reviews_html += f'<div class="review"><span class="stars">{stars}</span> <strong>{r["nickname"]}:</strong> {r["comment"][:100]}</div>'
+        else:
+            reviews_html += '<p>Нет отзывов</p>'
+        reviews_html += '</div>'
+        
+        cards += f'<div class="property-card"><h3>{p["title"]}</h3><p><strong>📍 Локация:</strong> {p["location"]}</p><p><strong>💰 Цена:</strong> {p["price"]} ₽</p><p><strong>📐 Площадь:</strong> {p["area"]} м²</p><p><strong>🏗️ Этаж:</strong> {p["floor"]} / {p["total_floors"]}</p><p><strong>🏠 Тип:</strong> {p["building_type"]}</p><p><strong>📝 Описание:</strong> {p["description"]}</p><p><strong>👤 Продавец:</strong> {p["seller_name"]}</p>{photos_html}<div class="property-actions">'
+        
+        if user:
+            # Любой авторизованный может купить/арендовать (кроме админа? админ тоже может)
+            if user.get("role") in ["client", "seller", "admin"]:
+                cards += f'<form action="/buy_property/{p["id"]}" method="post" style="display:inline;"><button type="submit" class="buy-btn" onclick="return confirm(\'Вы уверены, что хотите КУПИТЬ эту недвижимость?\')">💰 Купить</button></form>'
+                cards += f'<form action="/rent_property/{p["id"]}" method="post" style="display:inline;"><button type="submit" class="rent-btn" onclick="return confirm(\'Вы уверены, что хотите АРЕНДОВАТЬ эту недвижимость?\')">🔑 Арендовать</button></form>'
+            if user.get("role") == "admin":
+                cards += f'<form action="/delete_property/{p["id"]}" method="post" style="display:inline;"><button type="submit" class="delete-btn" onclick="return confirm(\'Удалить объявление?\')">🗑️ Удалить</button></form>'
+        
+        # Форма отзыва
+        if user and user.get("role") == "client":
+            cards += f'''
+            <details><summary>⭐ Оставить отзыв</summary>
+            <form action="/add_review/{p["id"]}" method="post" style="margin-top:10px;">
+                <select name="rating" required><option value="5">5 ★ - Отлично</option><option value="4">4 ★ - Хорошо</option><option value="3">3 ★ - Нормально</option><option value="2">2 ★ - Плохо</option><option value="1">1 ★ - Ужасно</option></select>
+                <textarea name="comment" placeholder="Ваш отзыв (до 200 символов)" maxlength="200" rows="2" style="width:100%;margin-top:5px;"></textarea>
+                <button type="submit" class="btn" style="margin-top:5px;">Отправить отзыв</button>
+            </form></details>'''
+        
+        cards += f'</div>{reviews_html}</div>'
+    
     if not props:
         cards = '<p>Нет доступных объявлений.</p>'
-    content = f'<section style="padding:50px 0;"><div class="container"><h1 style="color:#1a5d7a;">🏠 Квартиры и дома на продажу/аренду</h1><div class="cards-grid">{cards}</div></div></section>'
-    return HTMLResponse(render_html(content, user=current_user))
+    
+    content = f'<section style="padding:50px 0;"><div class="container"><h1 style="color:#1a5d7a;">🏠 Квартиры и дома на продажу/аренду</h1><div class="cards-grid">{cards}</div></div></section><div id="imageModal" class="modal" onclick="closeModal()"><span class="close">&times;</span><img class="modal-content" id="modalImage"></div><script>function openModal(src){{document.getElementById("modalImage").src=src;document.getElementById("imageModal").style.display="block";}}function closeModal(){{document.getElementById("imageModal").style.display="none";}}</script>'
+    return HTMLResponse(render_html(content, user=user))
 
 @app.post("/buy_property/{prop_id}")
-async def buy_property(prop_id: int):
-    global current_user
-    if not current_user or current_user["role"] != "client":
-        return RedirectResponse("/login?error=Только клиенты могут покупать", 303)
+async def buy_property(request: Request, prop_id: int):
+    user = get_user_from_session(request)
+    if not user or user.get("role") not in ["client", "seller", "admin"]:
+        return RedirectResponse("/login?error=Авторизуйтесь для покупки", 303)
+    
     props = get_all_properties()
     prop = next((p for p in props if p["id"] == prop_id), None)
     if not prop:
         return RedirectResponse("/buy?error=Объявление не найдено", 303)
-    add_transaction(current_user["name"], prop["seller_name"], prop["title"], prop["price"], "Покупка", datetime.now().strftime("%d.%m.%Y %H:%M"))
-    add_notification(prop["seller_username"], f"🏠 КЛИЕНТ {current_user['name']} КУПИЛ {prop['title']} за {prop['price']} ₽", datetime.now().strftime("%d.%m.%Y %H:%M"), "sale", prop_id)
+    
+    add_transaction(user["name"], prop["seller_name"], prop["title"], prop["price"], "Покупка", datetime.now().strftime("%d.%m.%Y %H:%M"))
+    add_notification(prop["seller_username"], f"🏠 {user.get('nickname', user['name'])} КУПИЛ {prop['title']} за {prop['price']} ₽", datetime.now().strftime("%d.%m.%Y %H:%M"), "sale", prop_id)
     delete_property_by_id(prop_id)
     return RedirectResponse("/buy?success=Поздравляем с покупкой!", 303)
 
 @app.post("/rent_property/{prop_id}")
-async def rent_property(prop_id: int):
-    global current_user
-    if not current_user or current_user["role"] != "client":
-        return RedirectResponse("/login?error=Только клиенты могут арендовать", 303)
+async def rent_property(request: Request, prop_id: int):
+    user = get_user_from_session(request)
+    if not user or user.get("role") not in ["client", "seller", "admin"]:
+        return RedirectResponse("/login?error=Авторизуйтесь для аренды", 303)
+    
     props = get_all_properties()
     prop = next((p for p in props if p["id"] == prop_id), None)
     if not prop:
         return RedirectResponse("/buy?error=Объявление не найдено", 303)
-    add_transaction(current_user["name"], prop["seller_name"], prop["title"], prop["price"], "Аренда", datetime.now().strftime("%d.%m.%Y %H:%M"))
-    add_notification(prop["seller_username"], f"🔑 КЛИЕНТ {current_user['name']} АРЕНДОВАЛ {prop['title']}", datetime.now().strftime("%d.%m.%Y %H:%M"), "rent", prop_id)
+    
+    add_transaction(user["name"], prop["seller_name"], prop["title"], prop["price"], "Аренда", datetime.now().strftime("%d.%m.%Y %H:%M"))
+    add_notification(prop["seller_username"], f"🔑 {user.get('nickname', user['name'])} АРЕНДОВАЛ {prop['title']}", datetime.now().strftime("%d.%m.%Y %H:%M"), "rent", prop_id)
     delete_property_by_id(prop_id)
     return RedirectResponse("/buy?success=Поздравляем с арендой!", 303)
 
+@app.post("/add_review/{prop_id}")
+async def add_review_route(request: Request, prop_id: int, rating: int = Form(...), comment: str = Form("")):
+    user = get_user_from_session(request)
+    if not user or user.get("role") != "client":
+        return RedirectResponse("/login?error=Только клиенты могут оставлять отзывы", 303)
+    
+    add_review(prop_id, user["username"], user.get("nickname", user["name"]), rating, comment[:200])
+    return RedirectResponse(f"/buy?success=Отзыв добавлен", 303)
+
 @app.get("/sell", response_class=HTMLResponse)
-async def sell():
-    global current_user
-    if current_user and (current_user["role"] == "seller" or current_user["role"] == "admin"):
-        content = '<section style="padding:50px 0;"><div class="container"><h1 style="color:#1a5d7a;">📝 Добавить объявление</h1><form action="/add_property" method="post" style="max-width:600px;background:white;padding:30px;border-radius:20px;"><div class="form-group"><label>Название</label><input type="text" name="title" required></div><div class="form-group"><label>Локация</label><input type="text" name="location" required></div><div class="form-group"><label>Цена (₽)</label><input type="number" name="price" required></div><div class="form-group"><label>Площадь (м²)</label><input type="number" step="0.1" name="area" required></div><div class="form-group"><label>Этаж</label><input type="number" name="floor" required></div><div class="form-group"><label>Всего этажей</label><input type="number" name="total_floors" required></div><div class="form-group"><label>Тип строения</label><select name="building_type"><option>Кирпичный</option><option>Панельный</option><option>Монолитный</option><option>Деревянный</option><option>Блочный</option></select></div><div class="form-group"><label>Описание</label><textarea name="description" rows="4"></textarea></div><button type="submit" class="btn">Опубликовать</button></form></div></section>'
+async def sell(request: Request):
+    user = get_user_from_session(request)
+    if user and is_user_banned(user["username"]):
+        response = RedirectResponse("/logout", 303)
+        response.delete_cookie("user_session")
+        return response
+    
+    if user and (user.get("role") == "seller" or user.get("role") == "admin"):
+        content = '<section style="padding:50px 0;"><div class="container"><h1 style="color:#1a5d7a;">📝 Добавить объявление</h1><form action="/add_property" method="post" enctype="multipart/form-data" style="max-width:600px;background:white;padding:30px;border-radius:20px;"><div class="form-group"><label>Название</label><input type="text" name="title" required></div><div class="form-group"><label>Локация</label><input type="text" name="location" required></div><div class="form-group"><label>Цена (₽)</label><input type="number" name="price" required></div><div class="form-group"><label>Площадь (м²)</label><input type="number" step="0.1" name="area" required></div><div class="form-group"><label>Этаж</label><input type="number" name="floor" required></div><div class="form-group"><label>Всего этажей</label><input type="number" name="total_floors" required></div><div class="form-group"><label>Тип строения</label><select name="building_type"><option>Кирпичный</option><option>Панельный</option><option>Монолитный</option><option>Деревянный</option><option>Блочный</option></select></div><div class="form-group"><label>Описание</label><textarea name="description" rows="4"></textarea></div><div class="form-group"><label>Фото (можно несколько, до 5 шт.)</label><input type="file" name="photos" multiple accept="image/*"></div><button type="submit" class="btn">Опубликовать</button></form></div></section>'
     else:
         content = '<section style="padding:50px 0;"><div class="container"><div style="background:white;padding:30px;border-radius:20px;text-align:center;"><p style="color:red;">⚠️ Только продавцы и администраторы могут добавлять объявления.</p><p><a href="/register">Зарегистрируйтесь как продавец</a></p></div></div></section>'
-    return HTMLResponse(render_html(content, user=current_user))
+    return HTMLResponse(render_html(content, user=user))
 
 @app.post("/add_property")
-async def add_property_route(title: str = Form(...), location: str = Form(...), price: int = Form(...), area: float = Form(...), floor: int = Form(...), total_floors: int = Form(...), building_type: str = Form(...), description: str = Form("")):
-    global current_user
-    if not current_user or current_user["role"] not in ["seller", "admin"]:
+async def add_property_route(request: Request, title: str = Form(...), location: str = Form(...), price: int = Form(...), area: float = Form(...), floor: int = Form(...), total_floors: int = Form(...), building_type: str = Form(...), description: str = Form(""), photos: List[UploadFile] = File(None)):
+    user = get_user_from_session(request)
+    if not user or user.get("role") not in ["seller", "admin"]:
         raise HTTPException(403, "Доступ запрещён")
-    add_property(title, location, price, area, floor, total_floors, building_type, description, current_user["name"], current_user["username"])
+    
+    photo_paths = []
+    if photos:
+        for i, photo in enumerate(photos[:5]):
+            if photo and photo.filename:
+                ext = photo.filename.split(".")[-1]
+                name = f"{uuid.uuid4()}.{ext}"
+                path = f"static/uploads/property_photos/{name}"
+                with open(path, "wb") as f:
+                    shutil.copyfileobj(photo.file, f)
+                photo_paths.append(f"/{path}")
+    
+    add_property(title, location, price, area, floor, total_floors, building_type, description, user.get("nickname", user["name"]), user["username"], photo_paths)
     return RedirectResponse("/buy", 303)
 
 @app.post("/delete_property/{prop_id}")
-async def delete_property_route(prop_id: int):
-    global current_user
-    if not current_user or current_user["role"] != "admin":
+async def delete_property_route(request: Request, prop_id: int):
+    user = get_user_from_session(request)
+    if not user or user.get("role") != "admin":
         raise HTTPException(403, "Только для администратора")
     delete_property_by_id(prop_id)
     return RedirectResponse("/buy", 303)
 
 @app.get("/chat", response_class=HTMLResponse)
-async def chat():
-    global current_user
+async def chat(request: Request):
+    user = get_user_from_session(request)
+    if user and is_user_banned(user["username"]):
+        response = RedirectResponse("/logout", 303)
+        response.delete_cookie("user_session")
+        return response
+    
     msgs = get_all_messages()
     html = ""
     for m in msgs[-50:]:
         btn = ''
-        if current_user and (current_user["role"] == "admin" or current_user["name"] == m["username"]):
-            btn = f'<form action="/delete_message/{m["id"]}" method="post" style="display:inline;"><button type="submit" class="delete-msg-btn" onclick="return confirm(\'Удалить?\')">🗑️</button></form>'
-        html += f'<div class="message"><div class="message-header"><div><span class="message-user">{m["username"]}</span><span class="message-time">{m["time"]}</span></div><div>{btn}</div></div><p>{m["text"]}</p>'
+        if user and (user.get("role") == "admin" or user.get("username") == m["username"]):
+            btn = f'<form action="/delete_message/{m["id"]}" method="post" style="display:inline;"><button type="submit" class="delete-msg-btn" onclick="return confirm(\'Удалить сообщение?\')">🗑️</button></form>'
+        html += f'<div class="message"><div class="message-header"><div><span class="message-user">{m["nickname"]}</span><span class="message-time">{m["time"]}</span></div><div>{btn}</div></div><p>{m["text"]}</p>'
         if m.get("photo"):
             html += f'<img src="{m["photo"]}" class="media-preview">'
         html += '</div>'
     if not msgs:
         html = '<p style="text-align:center;color:#999;">Пока нет сообщений</p>'
-    form = '<form action="/send_message" method="post" enctype="multipart/form-data"><div class="chat-input-area"><textarea name="message_text" rows="2" placeholder="Ваше сообщение..." required></textarea></div><div class="file-inputs"><input type="file" name="photo" accept="image/*"></div><button type="submit" class="btn" style="margin-top:10px;">Отправить</button></form>' if current_user else '<p><a href="/login">Войдите</a>, чтобы писать в чат</p>'
+    form = '<form action="/send_message" method="post" enctype="multipart/form-data"><div class="chat-input-area"><textarea name="message_text" rows="2" placeholder="Ваше сообщение..." required></textarea></div><div class="file-inputs"><input type="file" name="photo" accept="image/*"></div><button type="submit" class="btn" style="margin-top:10px;">Отправить</button></form>' if user else '<p><a href="/login">Войдите</a>, чтобы писать в чат</p>'
     content = f'<section style="padding:50px 0;"><div class="container"><h1>💬 Общая переписка</h1><div class="chat-messages" id="chatMessages">{html}</div>{form}</div></section><script>function loadMessages(){{fetch("/get_messages").then(r=>r.json()).then(d=>{{const c=document.getElementById("chatMessages");if(d.html){{c.innerHTML=d.html;c.scrollTop=c.scrollHeight;}}}});}}setInterval(loadMessages,3000);loadMessages();</script>'
-    return HTMLResponse(render_html(content, user=current_user))
+    return HTMLResponse(render_html(content, user=user))
 
 @app.post("/send_message")
-async def send_message_route(message_text: str = Form(...), photo: Optional[UploadFile] = File(None)):
-    global current_user
-    if not current_user:
+async def send_message_route(request: Request, message_text: str = Form(...), photo: Optional[UploadFile] = File(None)):
+    user = get_user_from_session(request)
+    if not user:
         raise HTTPException(403, "Авторизуйтесь")
+    if is_user_banned(user["username"]):
+        raise HTTPException(403, "Вы забанены")
+    
     path = None
     if photo and photo.filename:
         ext = photo.filename.split(".")[-1]
@@ -443,33 +580,35 @@ async def send_message_route(message_text: str = Form(...), photo: Optional[Uplo
         with open(path, "wb") as f:
             shutil.copyfileobj(photo.file, f)
         path = f"/{path}"
-    add_message(current_user["name"], message_text, datetime.now().strftime("%H:%M:%S"), path)
+    add_message(user["username"], user.get("nickname", user["name"]), message_text, datetime.now().strftime("%H:%M:%S"), path)
     return RedirectResponse("/chat", 303)
 
 @app.post("/delete_message/{msg_id}")
-async def delete_message_route(msg_id: int):
-    global current_user
-    if not current_user:
+async def delete_message_route(request: Request, msg_id: int):
+    user = get_user_from_session(request)
+    if not user:
         return RedirectResponse("/login?error=Авторизуйтесь", 303)
+    
     msgs = get_all_messages()
     msg = next((m for m in msgs if m["id"] == msg_id), None)
     if not msg:
         return RedirectResponse("/chat?error=Сообщение не найдено", 303)
-    if current_user["role"] != "admin" and current_user["name"] != msg["username"]:
+    if user.get("role") != "admin" and user.get("username") != msg["username"]:
         return RedirectResponse("/chat?error=Нельзя удалить чужое сообщение", 303)
-    delete_message_by_id(msg_id, current_user["name"])
+    
+    delete_message_by_id(msg_id, user.get("nickname", user["name"]))
     return RedirectResponse("/chat?success=Сообщение удалено", 303)
 
 @app.get("/get_messages")
-async def get_messages():
-    global current_user
+async def get_messages(request: Request):
+    user = get_user_from_session(request)
     msgs = get_all_messages()
     html = ""
     for m in msgs[-50:]:
         btn = ''
-        if current_user and (current_user["role"] == "admin" or current_user["name"] == m["username"]):
-            btn = f'<form action="/delete_message/{m["id"]}" method="post" style="display:inline;"><button type="submit" class="delete-msg-btn" onclick="return confirm(\'Удалить?\')">🗑️</button></form>'
-        html += f'<div class="message"><div class="message-header"><div><span class="message-user">{m["username"]}</span><span class="message-time">{m["time"]}</span></div><div>{btn}</div></div><p>{m["text"]}</p>'
+        if user and (user.get("role") == "admin" or user.get("username") == m["username"]):
+            btn = f'<form action="/delete_message/{m["id"]}" method="post" style="display:inline;"><button type="submit" class="delete-msg-btn" onclick="return confirm(\'Удалить сообщение?\')">🗑️</button></form>'
+        html += f'<div class="message"><div class="message-header"><div><span class="message-user">{m["nickname"]}</span><span class="message-time">{m["time"]}</span></div><div>{btn}</div></div><p>{m["text"]}</p>'
         if m.get("photo"):
             html += f'<img src="{m["photo"]}" class="media-preview">'
         html += '</div>'
@@ -478,103 +617,194 @@ async def get_messages():
     return {"html": html}
 
 @app.get("/info", response_class=HTMLResponse)
-async def info():
-    global current_user
+async def info(request: Request):
+    user = get_user_from_session(request)
+    if user and is_user_banned(user["username"]):
+        response = RedirectResponse("/logout", 303)
+        response.delete_cookie("user_session")
+        return response
+    
     trans = get_all_transactions()
     trans_html = ""
     for t in trans[:20]:
         trans_html += f'<div class="transaction-item"><strong>📅 {t["date"]}</strong><p>🏠 {t["property_title"]}</p><p>💰 {t["price"]} ₽</p><p>👤 Продавец: {t["seller"]} → Покупатель: {t["buyer"]}</p><p>📝 Тип: {t["type"]}</p></div>'
     if not trans:
         trans_html = "<p>Пока нет завершённых сделок</p>"
+    
     admin_html = ""
-    if current_user and current_user["role"] == "admin":
+    if user and user.get("role") == "admin":
         users_list = get_all_users()
         users_html = ""
         for u in users_list:
-            users_html += f'<div class="user-item"><strong>👤 {u["name"]}</strong> (@{u["username"]})<br>Роль: {u["role"]}<br>Почта: {u.get("email","не указана")}</div>'
+            ban_status = "🔴 Забанен" if u.get("is_banned") else "🟢 Активен"
+            ban_button = ''
+            if not u.get("is_banned") and u["username"] != "artem_gaun":
+                ban_button = f'<form action="/ban_user/{u["username"]}" method="post" style="display:inline;"><button type="submit" class="ban-btn" onclick="return confirm(\'Забанить {u.get("nickname", u["name"])}?\')">🚫 Забанить</button></form>'
+            elif u.get("is_banned"):
+                ban_button = f'<form action="/unban_user/{u["username"]}" method="post" style="display:inline;"><button type="submit" class="unban-btn" onclick="return confirm(\'Разбанить {u.get("nickname", u["name"])}?\')">✅ Разбанить</button></form>'
+            
+            users_html += f'<div class="user-item"><strong>👤 {u.get("nickname", u["name"])}</strong> (@{u["username"]})<br>Роль: {u["role"]}<br>Почта: {u.get("email","не указана")}<br>Статус: {ban_status}<br>{ban_button}</div>'
+        
         deleted = get_deleted_messages()
         del_html = ""
         for d in deleted[:30]:
-            del_html += f'<div class="deleted-item"><strong>🗑️ {d["username"]}</strong> <small>{d["time"]}</small><p>{d["text"]}</p>'
+            del_html += f'<div class="deleted-item"><strong>🗑️ {d["nickname"]}</strong> <small>{d["time"]}</small><p>{d["text"]}</p>'
             if d.get("photo"):
                 del_html += f'<img src="{d["photo"]}" style="max-width:100px;border-radius:8px;">'
             del_html += f'<div style="font-size:12px;">Удалено: {d["deleted_by"]} ({d["deleted_at"]})</div></div>'
-        admin_html = f'<div class="info-section"><h2>👥 Зарегистрированные пользователи</h2><div>{users_html if users_html else "<p>Нет пользователей</p>"}</div></div><div class="info-section"><h2>🗑️ Корзина</h2><div>{del_html if deleted else "<p>Корзина пуста</p>"}</div></div>'
+        
+        admin_html = f'<div class="info-section"><h2>👥 Зарегистрированные пользователи</h2><div>{users_html if users_html else "<p>Нет пользователей</p>"}</div></div><div class="info-section"><h2>🗑️ Корзина</h2><div>{del_html if deleted else "<p>Корзина пуста</p>"}</div><form action="/clear_deleted_messages" method="post" style="margin-top:10px;"><button type="submit" class="delete-btn" onclick="return confirm(\'Очистить корзину полностью?\')">🗑️ Очистить корзину</button></form></div>'
+    
     content = f'<section style="padding:50px 0;"><div class="container"><h1 style="color:#1a5d7a;">📊 Сведения о сделках</h1><div class="info-section"><h2>📋 История покупок и продаж</h2><div>{trans_html}</div></div>{admin_html}</div></section>'
-    return HTMLResponse(render_html(content, user=current_user))
+    return HTMLResponse(render_html(content, user=user))
+
+@app.post("/clear_deleted_messages")
+async def clear_deleted_messages_route(request: Request):
+    user = get_user_from_session(request)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(403, "Только для администратора")
+    clear_deleted_messages()
+    return RedirectResponse("/info?success=Корзина очищена", 303)
+
+@app.post("/ban_user/{username}")
+async def ban_user_route(request: Request, username: str):
+    user = get_user_from_session(request)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(403, "Только для администратора")
+    if username == "artem_gaun":
+        return RedirectResponse("/info?error=Нельзя забанить главного администратора", 303)
+    ban_user(username, user.get("nickname", user["name"]))
+    return RedirectResponse("/info?success=Пользователь забанен", 303)
+
+@app.post("/unban_user/{username}")
+async def unban_user_route(request: Request, username: str):
+    user = get_user_from_session(request)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(403, "Только для администратора")
+    unban_user(username)
+    return RedirectResponse("/info?success=Пользователь разбанен", 303)
 
 @app.get("/contacts", response_class=HTMLResponse)
-async def contacts():
+async def contacts(request: Request):
+    user = get_user_from_session(request)
+    if user and is_user_banned(user["username"]):
+        response = RedirectResponse("/logout", 303)
+        response.delete_cookie("user_session")
+        return response
+    
     content = '<section style="padding:50px 0;"><div class="container"><div style="background:white;border-radius:24px;padding:40px;"><h1 style="color:#1a5d7a;">📬 Наши контакты</h1><div style="background:#f0f9ff;padding:22px;border-radius:16px;margin:25px 0;"><p><strong>📍 Адрес:</strong> г. Лянтор, Лянторский Нефтяной техникум</p><p><strong>📧 Email:</strong> artemgaun104@gmail.com</p></div><div style="border-radius:20px;overflow:hidden;"><iframe src="https://yandex.ru/map-widget/v1/?ll=72.1579%2C61.6229&z=17&pt=72.1589,61.6230&what=here%3A1&lang=ru_RU" style="width:100%;height:380px;border:0;"></iframe></div></div></div></section>'
-    return HTMLResponse(render_html(content, user=current_user))
+    return HTMLResponse(render_html(content, user=user))
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(error: str = None):
+async def login_page(request: Request, error: str = None):
+    user = get_user_from_session(request)
+    if user:
+        return RedirectResponse("/", 303)
+    
     err = f'<div class="error">{error}</div>' if error else ''
-    content = f'<section style="padding:50px 0;"><div class="container"><div style="max-width:400px;margin:0 auto;background:white;padding:30px;border-radius:20px;"><h2 style="color:#1a5d7a;">Вход</h2>{err}<form action="/login" method="post"><div class="form-group"><label>Логин</label><input type="text" name="username" required></div><div class="form-group"><label>Пароль</label><input type="password" name="password" required></div><button type="submit" class="btn">Войти</button></form><p style="margin-top:15px;"><a href="/register">Зарегистрироваться</a></p></div></div></section>'
-    return HTMLResponse(render_html(content, user=current_user, error=error))
+    content = f'<section style="padding:50px 0;"><div class="container"><div style="max-width:400px;margin:0 auto;background:white;padding:30px;border-radius:20px;"><h2 style="color:#1a5d7a;">Вход</h2>{err}<form action="/login" method="post"><div class="form-group"><label>Логин</label><input type="text" name="username" required></div><div class="form-group"><label>Пароль</label><input type="password" name="password" required></div><button type="submit" class="btn">Войти</button></form><p><a href="/register">Зарегистрироваться</a></p></div></div></section>'
+    return HTMLResponse(render_html(content, user=user, error=error))
 
 @app.post("/login")
-async def login_post(username: str = Form(...), password: str = Form(...)):
-    global current_user
+async def login_post(request: Request, username: str = Form(...), password: str = Form(...)):
     user = get_user_by_username(username)
     if user and user["password"] == password and user["is_active"]:
-        current_user = {"username": user["username"], "role": user["role"], "name": user["name"]}
-        return RedirectResponse("/", 303)
+        if is_user_banned(username):
+            return RedirectResponse("/login?error=Ваш аккаунт заблокирован", 303)
+        response = RedirectResponse("/", 303)
+        set_user_session(response, {"username": user["username"], "role": user["role"], "name": user["name"], "nickname": user.get("nickname", user["name"])})
+        return response
     return RedirectResponse("/login?error=Неверный логин или пароль", 303)
 
 @app.get("/logout")
 async def logout():
-    global current_user
-    current_user = None
-    return RedirectResponse("/", 303)
+    response = RedirectResponse("/", 303)
+    response.delete_cookie("user_session")
+    return response
 
 @app.get("/register", response_class=HTMLResponse)
-async def register_page(error: str = None):
+async def register_page(request: Request, error: str = None):
+    user = get_user_from_session(request)
+    if user:
+        return RedirectResponse("/", 303)
+    
     err = f'<div class="error">{error}</div>' if error else ''
-    content = f'<section style="padding:50px 0;"><div class="container"><div style="max-width:400px;margin:0 auto;background:white;padding:30px;border-radius:20px;"><h2 style="color:#1a5d7a;">Регистрация</h2>{err}<form action="/register" method="post"><div class="form-group"><label>Имя</label><input type="text" name="name" required></div><div class="form-group"><label>Логин</label><input type="text" name="username" required></div><div class="form-group"><label>Пароль</label><input type="password" name="password" required></div><div class="form-group"><label>Роль</label><select name="role"><option value="client">Клиент</option><option value="seller">Продавец</option></select></div><button type="submit" class="btn">Зарегистрироваться</button></form><p style="margin-top:15px;"><a href="/login">Уже есть аккаунт?</a></p></div></div></section>'
-    return HTMLResponse(render_html(content, user=current_user, error=error))
+    content = f'<section style="padding:50px 0;"><div class="container"><div style="max-width:400px;margin:0 auto;background:white;padding:30px;border-radius:20px;"><h2 style="color:#1a5d7a;">Регистрация</h2>{err}<form action="/register" method="post"><div class="form-group"><label>Имя</label><input type="text" name="name" required></div><div class="form-group"><label>Логин</label><input type="text" name="username" required></div><div class="form-group"><label>Никнейм (будет виден в чате)</label><input type="text" name="nickname" required></div><div class="form-group"><label>Пароль</label><input type="password" name="password" required></div><div class="form-group"><label>Роль</label><select name="role"><option value="client">Клиент</option><option value="seller">Продавец</option></select></div><button type="submit" class="btn">Зарегистрироваться</button></form><p><a href="/login">Уже есть аккаунт?</a></p></div></div></section>'
+    return HTMLResponse(render_html(content, user=user, error=error))
 
 @app.post("/register")
-async def register_post(name: str = Form(...), username: str = Form(...), password: str = Form(...), role: str = Form(...)):
+async def register_post(name: str = Form(...), username: str = Form(...), nickname: str = Form(...), password: str = Form(...), role: str = Form(...)):
     if get_user_by_username(username):
         return RedirectResponse("/register?error=Пользователь уже существует", 303)
-    create_user(username, password, name, role)
+    if get_user_by_nickname(nickname):
+        return RedirectResponse("/register?error=Никнейм уже занят", 303)
+    create_user(username, password, nickname, name, role)
     return RedirectResponse("/login", 303)
 
 @app.get("/profile", response_class=HTMLResponse)
-async def profile(error: str = None, success: str = None):
-    global current_user
-    if not current_user:
+async def profile(request: Request, error: str = None, success: str = None):
+    user = get_user_from_session(request)
+    if not user:
         return RedirectResponse("/login", 303)
-    mark_notifications_read(current_user["username"])
-    notif_list = get_notifications_by_user(current_user["username"])
+    if is_user_banned(user["username"]):
+        response = RedirectResponse("/logout", 303)
+        response.delete_cookie("user_session")
+        return response
+    
+    mark_notifications_read(user["username"])
+    notif_list = get_notifications_by_user(user["username"])
     notif_html = ""
     for n in notif_list:
         notif_html += f'<div class="notification"><strong>{n["date"]}</strong><p>{n["message"]}</p></div>'
     if not notif_html:
         notif_html = "<p>У вас пока нет уведомлений</p>"
-    user = get_user_by_username(current_user["username"])
-    email = user.get("email", "") if user else ""
-    content = f'<section style="padding:50px 0;"><div class="container"><div style="background:white;border-radius:24px;padding:40px;"><h1 style="color:#1a5d7a;">📋 Личный кабинет</h1><div style="margin:30px 0;padding:20px;background:#e0f2f8;border-radius:16px;"><p><strong>👤 Имя:</strong> {current_user["name"]}</p><p><strong>🔑 Роль:</strong> {current_user["role"]}</p><p><strong>📧 Email:</strong> {email if email else "Не указан"}</p></div><form action="/update_email" method="post"><div class="form-group"><label>Привязать почту (@mail.ru или @gmail.com)</label><div style="display:flex;gap:10px;"><input type="email" name="email" placeholder="example@mail.ru" value="{email}" style="flex:1;"><button type="submit" class="btn">Сохранить</button></div></div></form><h2 style="color:#1a5d7a;margin:30px 0 20px;">🔔 Уведомления</h2><div>{notif_html}</div></div></div></section>'
-    return HTMLResponse(render_html(content, user=current_user, error=error, success=success))
+    
+    user_data = get_user_by_username(user["username"])
+    email = user_data.get("email", "") if user_data else ""
+    nickname = user_data.get("nickname", "") if user_data else ""
+    
+    content = f'<section style="padding:50px 0;"><div class="container"><div style="background:white;border-radius:24px;padding:40px;"><h1 style="color:#1a5d7a;">📋 Личный кабинет</h1><div style="margin:30px 0;padding:20px;background:#e0f2f8;border-radius:16px;"><p><strong>👤 Имя:</strong> {user["name"]}</p><p><strong>🔑 Никнейм:</strong> {nickname}</p><p><strong>🎭 Роль:</strong> {user["role"]}</p><p><strong>📧 Email:</strong> {email if email else "Не указан"}</p></div><form action="/update_nickname" method="post"><div class="form-group"><label>Изменить никнейм</label><div style="display:flex;gap:10px;"><input type="text" name="nickname" placeholder="Новый никнейм" value="{nickname}" style="flex:1;" required><button type="submit" class="btn">Обновить</button></div></div></form><form action="/update_email" method="post"><div class="form-group"><label>Привязать почту (@mail.ru или @gmail.com)</label><div style="display:flex;gap:10px;"><input type="email" name="email" placeholder="example@mail.ru" value="{email}" style="flex:1;"><button type="submit" class="btn">Сохранить</button></div></div></form><h2 style="color:#1a5d7a;margin:30px 0 20px;">🔔 Уведомления</h2><div>{notif_html}</div></div></div></section>'
+    return HTMLResponse(render_html(content, user=user, error=error, success=success))
+
+@app.post("/update_nickname")
+async def update_nickname(request: Request, nickname: str = Form(...)):
+    user = get_user_from_session(request)
+    if not user:
+        return RedirectResponse("/login", 303)
+    if get_user_by_nickname(nickname) and get_user_by_nickname(nickname)["username"] != user["username"]:
+        return RedirectResponse("/profile?error=Никнейм уже занят", 303)
+    update_user_nickname(user["username"], nickname)
+    response = RedirectResponse("/profile?success=Никнейм обновлён", 303)
+    set_user_session(response, {"username": user["username"], "role": user["role"], "name": user["name"], "nickname": nickname})
+    return response
 
 @app.post("/update_email")
-async def update_email(email: str = Form(...)):
-    global current_user
-    if not current_user:
+async def update_email(request: Request, email: str = Form(...)):
+    user = get_user_from_session(request)
+    if not user:
         return RedirectResponse("/login", 303)
     if email and not is_valid_email(email):
         return RedirectResponse("/profile?error=Неверный формат почты. Поддерживается @mail.ru или @gmail.com", 303)
-    update_user_email(current_user["username"], email)
+    update_user_email(user["username"], email)
     return RedirectResponse("/profile?success=Почта обновлена", 303)
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("✅ САЙТ ЗАПУЩЕН!")
-    print("🌐 Открой в браузере: http://127.0.0.1:8000")
+    print("✅ САЙТ ЗАПУЩЕН С НОВЫМ ФУНКЦИОНАЛОМ!")
+    print("🌐 http://127.0.0.1:8000")
     print("="*60)
-    print("\n🔑 Тестовый аккаунт: admin / admin123")
-    print("\n💾 Все данные сохраняются в папке data/")
+    print("\n🔑 АДМИНИСТРАТОР:")
+    print("   Логин: artem_gaun")
+    print("   Пароль: Admin_321")
+    print("\n🎯 НОВЫЕ ВОЗМОЖНОСТИ:")
+    print("   • Несколько фото к объявлениям")
+    print("   • Продавцы и админы могут покупать")
+    print("   • Просмотр фото в увеличенном виде")
+    print("   • Подтверждение покупки/аренды")
+    print("   • В чате отображается никнейм")
+    print("   • Оценки и отзывы (до 5 звёзд)")
+    print("   • Смена никнейма в профиле")
+    print("   • Бан пользователей")
+    print("   • Очистка корзины сообщений")
     print("="*60 + "\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)
