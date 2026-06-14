@@ -26,7 +26,6 @@ os.makedirs("data", exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Конфигурация почты
 EMAIL_CONFIG = {
     "smtp_server": "smtp.gmail.com",
     "smtp_port": 587,
@@ -34,7 +33,6 @@ EMAIL_CONFIG = {
     "sender_password": ""
 }
 
-# Файлы для хранения данных
 DATA_FILES = {
     "users": "data/users.json",
     "properties": "data/properties.json",
@@ -569,7 +567,108 @@ def export_transactions_to_excel(transactions):
         ws.column_dimensions[col_letter].width = adjusted_width
     return wb
 
-# ============= HTML ФУНКЦИЯ =============
+# ============= HTML ШАБЛОН (без f-строк) =============
+CSS_STYLES = """:root{--light-blue:#6ec8e6;--medium-blue:#4ab0d0;--dark-blue:#2c7aa0;--bg:#f0f7fa;--card-bg:#ffffff;--text:#2c3e50;--text-light:#4a627a;--border:#d4e8f0;--header-bg:#ffffff;--shadow:0 2px 15px rgba(0,0,0,0.08);}
+[data-theme="dark"]{--light-blue:#2c7aa0;--medium-blue:#1a5d7a;--dark-blue:#6ec8e6;--bg:#1a2a3a;--card-bg:#2a3a4a;--text:#e0e0e0;--text-light:#b0b0b0;--border:#3a4a5a;--header-bg:#1a2a3a;--shadow:0 2px 15px rgba(0,0,0,0.3);}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:Segoe UI,sans-serif;background:var(--bg);color:var(--text);transition:background 0.3s,color 0.3s;}
+header{background:var(--header-bg);box-shadow:var(--shadow);position:sticky;top:0;z-index:100;}
+.top-banner{background:var(--light-blue);padding:8px 0;text-align:center;font-size:13px;color:#1a4d66;}
+.container{max-width:1200px;margin:0 auto;padding:0 25px;}
+.header-main{display:flex;justify-content:space-between;align-items:center;padding:20px 0;flex-wrap:wrap;gap:15px;}
+.logo-area{display:flex;align-items:center;gap:15px;}
+.logo-icon{background:var(--light-blue);width:55px;height:55px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;color:white;}
+.logo-text h1{font-size:18px;color:#1a4d66;}
+.logo-text h2{font-size:22px;color:var(--dark-blue);}
+.slogan{font-size:13px;color:var(--medium-blue);}
+nav ul{display:flex;list-style:none;gap:25px;flex-wrap:wrap;}
+nav a{text-decoration:none;color:var(--text);font-weight:600;padding:8px 12px;border-radius:8px;transition:0.3s;}
+nav a:hover{background:var(--bg);color:var(--dark-blue);}
+.user-info{display:flex;gap:15px;align-items:center;flex-wrap:wrap;}
+.btn{background:var(--light-blue);padding:8px 20px;border-radius:25px;text-decoration:none;color:#1a4d66;font-weight:bold;border:none;cursor:pointer;display:inline-block;transition:0.3s;}
+.btn:hover{transform:scale(1.02);background:var(--medium-blue);}
+.hero{background:linear-gradient(120deg,var(--bg) 0%,var(--card-bg) 80%);padding:50px 0;text-align:center;}
+.hero h1{font-size:42px;color:var(--dark-blue);}
+.services-block{background:var(--card-bg);padding:50px 0;border-bottom:1px solid var(--border);}
+.services-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:30px;margin-top:30px;}
+.service-box{background:var(--bg);border-radius:16px;padding:25px;border-left:4px solid var(--light-blue);}
+.service-box h3{color:var(--dark-blue);font-size:22px;}
+.service-box ul{list-style:none;}
+.service-box li{padding:8px 0 8px 25px;position:relative;}
+.service-box li:before{content:"•";color:var(--light-blue);position:absolute;left:5px;}
+.about-section{background:var(--card-bg);padding:50px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.about-section h2{font-size:32px;color:var(--dark-blue);}
+.about-section h3{font-size:26px;color:var(--dark-blue);margin:30px 0 15px;}
+.about-section p{font-size:16px;line-height:1.7;color:var(--text-light);margin-bottom:18px;}
+.about-list{list-style:none;}
+.about-list li{padding:10px 0 10px 28px;position:relative;}
+.about-list li:before{content:"•";color:var(--light-blue);font-size:22px;position:absolute;left:5px;}
+.search-bar{background:var(--card-bg);padding:20px;border-radius:16px;margin-bottom:30px;display:flex;gap:15px;flex-wrap:wrap;align-items:flex-end;}
+.search-group{flex:1;min-width:150px;}
+.search-group label{display:block;margin-bottom:5px;font-weight:bold;}
+.search-group input,.search-group select{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);}
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:25px;padding:20px 0;}
+.property-card{background:var(--card-bg);border-radius:16px;padding:20px;box-shadow:var(--shadow);border-left:4px solid var(--light-blue);transition:0.2s;}
+.property-card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.15);}
+.property-card h3{color:var(--dark-blue);margin-bottom:10px;}
+.property-photos{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.property-photo{width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;transition:0.2s;}
+.property-photo:hover{transform:scale(1.05);}
+.property-actions{display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;}
+.delete-btn{background:#ff6b6b;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}
+.rent-btn{background:#4caf50;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}
+.buy-btn{background:var(--light-blue);color:#1a4d66;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}
+.compare-btn{background:#ff9800;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}
+.fav-btn{background:transparent;border:none;font-size:24px;cursor:pointer;}
+.ban-btn{background:#ff9800;color:white;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;}
+.unban-btn{background:#4caf50;color:white;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;}
+.form-group{margin-bottom:15px;}
+.form-group label{display:block;margin-bottom:5px;font-weight:bold;}
+.form-group input,.form-group textarea,.form-group select{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);}
+.chat-messages{height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:15px;background:var(--bg);margin-bottom:15px;}
+.message{margin-bottom:15px;padding:10px;background:var(--card-bg);border-radius:10px;box-shadow:var(--shadow);}
+.message-user{font-weight:bold;color:var(--dark-blue);}
+.message-time{font-size:11px;color:#999;margin-left:10px;}
+.message-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.media-preview{max-width:200px;max-height:150px;margin-top:10px;border-radius:8px;}
+.chat-input-area{display:flex;gap:10px;flex-wrap:wrap;}
+.chat-input-area textarea{flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);}
+.file-inputs{margin-top:10px;}
+.error{color:red;background:#ffe0e0;padding:10px;border-radius:8px;margin-bottom:15px;}
+.success{color:green;background:#e0ffe0;padding:10px;border-radius:8px;margin-bottom:15px;}
+.notification,.transaction-item,.user-item,.deleted-item{background:var(--card-bg);padding:12px;margin-bottom:10px;border-radius:10px;border-left:4px solid var(--light-blue);}
+.deleted-item{border-left-color:#ff6b6b;background:#fff8f0;}
+.info-section{background:var(--card-bg);border-radius:24px;padding:30px;margin-bottom:30px;box-shadow:var(--shadow);}
+.info-section h2{color:var(--dark-blue);margin-bottom:20px;}
+.reviews-section{margin-top:15px;padding-top:15px;border-top:1px solid var(--border);}
+.review{background:var(--bg);padding:10px;margin-bottom:10px;border-radius:8px;}
+.stars{color:#ffc107;font-size:16px;}
+.modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.9);}
+.modal-content{margin:auto;display:block;max-width:90%;max-height:90%;margin-top:50px;}
+.close{position:absolute;top:20px;right:35px;color:white;font-size:40px;font-weight:bold;cursor:pointer;}
+footer{background:var(--header-bg);color:var(--text-light);padding:30px 0;text-align:center;margin-top:40px;}
+@media (max-width:768px){.header-main{flex-direction:column;text-align:center;}nav ul{justify-content:center;}.cards-grid{grid-template-columns:1fr;}.search-bar{flex-direction:column;}}"""
+
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Риэлторское агентство by Гаун</title>
+<style>{css}</style>
+</head>
+<body data-theme="{theme}">
+<script>
+function toggleTheme(){{fetch("/set_theme",{{method:"POST",headers:{{"Content-Type":"application/x-www-form-urlencoded"}},body:"theme="+(document.body.getAttribute("data-theme")==="dark"?"light":"dark")}}).then(()=>location.reload());}}
+</script>
+<header><div class="top-banner">🏡 Лянтор | Ваш надёжный партнёр в мире недвижимости</div>
+<div class="container header-main"><div class="logo-area"><div class="logo-icon">🏢</div><div class="logo-text"><h1>РИЭЛТОРСКОЕ АГЕНТСТВО</h1><h2>BY ГАУН</h2><div class="slogan">МЕСТО, ГДЕ ВЫ СТАНЕТЕ СОБОЙ</div></div></div>
+<nav><ul><li><a href="/">Главная</a></li><li><a href="/buy">🏠 Покупка</a></li><li><a href="/sell">📝 Продажа</a></li><li><a href="/compare">📊 Сравнение</a></li><li><a href="/favorites">❤️ Избранное</a></li><li><a href="/chat">💬 Чат</a></li><li><a href="/info">📊 Сведения</a></li><li><a href="/contacts">📞 Контакты</a></li></ul></nav>
+<div class="user-info">{theme_toggle}{user_html}</div></div></header>
+<main>{error_html}{success_html}{content}</main>
+<footer><div class="container"><p>© 2025 Риэлторское агентство by Гаун | Лянтор</p></div></footer>
+<div id="imageModal" class="modal" onclick="closeModal()"><span class="close">&times;</span><img class="modal-content" id="modalImage"></div>
+<script>function openModal(src){{document.getElementById("modalImage").src=src;document.getElementById("imageModal").style.display="block";}}function closeModal(){{document.getElementById("imageModal").style.display="none";}}</script>
+</body>
+</html>"""
+
 def render_html(content, user=None, error=None, success=None, theme=None):
     if user and user.get("theme"):
         theme = user.get("theme")
@@ -582,116 +681,27 @@ def render_html(content, user=None, error=None, success=None, theme=None):
         unread = len([n for n in notif_list if not n.get("read")])
         private_unread = get_unread_private_count(user["username"])
         total_unread = unread + private_unread
-        badge = f'<span style="background:red;color:white;border-radius:50%;padding:2px 6px;font-size:12px;margin-left:5px;">{total_unread}</span>' if total_unread > 0 else ''
+        badge = ""
+        if total_unread > 0:
+            badge = f'<span style="background:red;color:white;border-radius:50%;padding:2px 6px;font-size:12px;margin-left:5px;">{total_unread}</span>'
         user_html = f'<span>👤 {user.get("nickname", user["name"])} ({user["role"]})</span><a href="/profile" class="btn">📋 Профиль{badge}</a><a href="/logout" class="btn">🚪 Выйти</a>'
     else:
         user_html = '<a href="/login" class="btn">🔓 Вход</a><a href="/register" class="btn">📝 Регистрация</a>'
     
-    err_html = f'<div class="error">{error}</div>' if error else ''
-    suc_html = f'<div class="success">{success}</div>' if success else ''
+    error_html = f'<div class="error">{error}</div>' if error else ''
+    success_html = f'<div class="success">{success}</div>' if success else ''
     
     theme_toggle = f'<button onclick="toggleTheme()" class="btn" style="background:transparent;border:1px solid var(--light-blue);">{"🌙" if theme=="light" else "☀️"}</button>'
     
-    return f'''<!DOCTYPE html>
-<html lang="ru">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Риэлторское агентство by Гаун</title>
-<style>
-:root{{--light-blue:#6ec8e6;--medium-blue:#4ab0d0;--dark-blue:#2c7aa0;--bg:#f0f7fa;--card-bg:#ffffff;--text:#2c3e50;--text-light:#4a627a;--border:#d4e8f0;--header-bg:#ffffff;--shadow:0 2px 15px rgba(0,0,0,0.08);}}
-[data-theme="dark"]{{--light-blue:#2c7aa0;--medium-blue:#1a5d7a;--dark-blue:#6ec8e6;--bg:#1a2a3a;--card-bg:#2a3a4a;--text:#e0e0e0;--text-light:#b0b0b0;--border:#3a4a5a;--header-bg:#1a2a3a;--shadow:0 2px 15px rgba(0,0,0,0.3);}}
-*{{margin:0;padding:0;box-sizing:border-box;}}
-body{{font-family:Segoe UI,sans-serif;background:var(--bg);color:var(--text);transition:background 0.3s,color 0.3s;}}
-header{{background:var(--header-bg);box-shadow:var(--shadow);position:sticky;top:0;z-index:100;}}
-.top-banner{{background:var(--light-blue);padding:8px 0;text-align:center;font-size:13px;color:#1a4d66;}}
-.container{{max-width:1200px;margin:0 auto;padding:0 25px;}}
-.header-main{{display:flex;justify-content:space-between;align-items:center;padding:20px 0;flex-wrap:wrap;gap:15px;}}
-.logo-area{{display:flex;align-items:center;gap:15px;}}
-.logo-icon{{background:var(--light-blue);width:55px;height:55px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;color:white;}}
-.logo-text h1{{font-size:18px;color:#1a4d66;}}
-.logo-text h2{{font-size:22px;color:var(--dark-blue);}}
-.slogan{{font-size:13px;color:var(--medium-blue);}}
-nav ul{{display:flex;list-style:none;gap:25px;flex-wrap:wrap;}}
-nav a{{text-decoration:none;color:var(--text);font-weight:600;padding:8px 12px;border-radius:8px;transition:0.3s;}}
-nav a:hover{{background:var(--bg);color:var(--dark-blue);}}
-.user-info{{display:flex;gap:15px;align-items:center;flex-wrap:wrap;}}
-.btn{{background:var(--light-blue);padding:8px 20px;border-radius:25px;text-decoration:none;color:#1a4d66;font-weight:bold;border:none;cursor:pointer;display:inline-block;transition:0.3s;}}
-.btn:hover{{transform:scale(1.02);background:var(--medium-blue);}}
-.hero{{background:linear-gradient(120deg,var(--bg) 0%,var(--card-bg) 80%);padding:50px 0;text-align:center;}}
-.hero h1{{font-size:42px;color:var(--dark-blue);}}
-.services-block{{background:var(--card-bg);padding:50px 0;border-bottom:1px solid var(--border);}}
-.services-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:30px;margin-top:30px;}}
-.service-box{{background:var(--bg);border-radius:16px;padding:25px;border-left:4px solid var(--light-blue);}}
-.service-box h3{{color:var(--dark-blue);font-size:22px;}}
-.service-box ul{{list-style:none;}}
-.service-box li{{padding:8px 0 8px 25px;position:relative;}}
-.service-box li:before{{content:"•";color:var(--light-blue);position:absolute;left:5px;}}
-.about-section{{background:var(--card-bg);padding:50px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}}
-.about-section h2{{font-size:32px;color:var(--dark-blue);}}
-.about-section h3{{font-size:26px;color:var(--dark-blue);margin:30px 0 15px;}}
-.about-section p{{font-size:16px;line-height:1.7;color:var(--text-light);margin-bottom:18px;}}
-.about-list{{list-style:none;}}
-.about-list li{{padding:10px 0 10px 28px;position:relative;}}
-.about-list li:before{{content:"•";color:var(--light-blue);font-size:22px;position:absolute;left:5px;}}
-.search-bar{{background:var(--card-bg);padding:20px;border-radius:16px;margin-bottom:30px;display:flex;gap:15px;flex-wrap:wrap;align-items:flex-end;}}
-.search-group{{flex:1;min-width:150px;}}
-.search-group label{{display:block;margin-bottom:5px;font-weight:bold;}}
-.search-group input,.search-group select{{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);}}
-.cards-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:25px;padding:20px 0;}}
-.property-card{{background:var(--card-bg);border-radius:16px;padding:20px;box-shadow:var(--shadow);border-left:4px solid var(--light-blue);transition:0.2s;}}
-.property-card:hover{{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.15);}}
-.property-card h3{{color:var(--dark-blue);margin-bottom:10px;}}
-.property-photos{{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}}
-.property-photo{{width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:pointer;transition:0.2s;}}
-.property-photo:hover{{transform:scale(1.05);}}
-.property-actions{{display:flex;gap:10px;margin-top:15px;flex-wrap:wrap;}}
-.delete-btn{{background:#ff6b6b;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}
-.rent-btn{{background:#4caf50;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}
-.buy-btn{{background:var(--light-blue);color:#1a4d66;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}
-.compare-btn{{background:#ff9800;color:white;border:none;padding:8px 15px;border-radius:8px;cursor:pointer;}}
-.fav-btn{{background:transparent;border:none;font-size:24px;cursor:pointer;}}
-.ban-btn{{background:#ff9800;color:white;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;}}
-.unban-btn{{background:#4caf50;color:white;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;}}
-.form-group{{margin-bottom:15px;}}
-.form-group label{{display:block;margin-bottom:5px;font-weight:bold;}}
-.form-group input,.form-group textarea,.form-group select{{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);}}
-.chat-messages{{height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:15px;background:var(--bg);margin-bottom:15px;}}
-.message{{margin-bottom:15px;padding:10px;background:var(--card-bg);border-radius:10px;box-shadow:var(--shadow);}}
-.message-user{{font-weight:bold;color:var(--dark-blue);}}
-.message-time{{font-size:11px;color:#999;margin-left:10px;}}
-.message-header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}}
-.media-preview{{max-width:200px;max-height:150px;margin-top:10px;border-radius:8px;}}
-.chat-input-area{{display:flex;gap:10px;flex-wrap:wrap;}}
-.chat-input-area textarea{{flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);}}
-.file-inputs{{margin-top:10px;}}
-.error{{color:red;background:#ffe0e0;padding:10px;border-radius:8px;margin-bottom:15px;}}
-.success{{color:green;background:#e0ffe0;padding:10px;border-radius:8px;margin-bottom:15px;}}
-.notification,.transaction-item,.user-item,.deleted-item{{background:var(--card-bg);padding:12px;margin-bottom:10px;border-radius:10px;border-left:4px solid var(--light-blue);}}
-.deleted-item{{border-left-color:#ff6b6b;background:#fff8f0;}}
-.info-section{{background:var(--card-bg);border-radius:24px;padding:30px;margin-bottom:30px;box-shadow:var(--shadow);}}
-.info-section h2{{color:var(--dark-blue);margin-bottom:20px;}}
-.reviews-section{{margin-top:15px;padding-top:15px;border-top:1px solid var(--border);}}
-.review{{background:var(--bg);padding:10px;margin-bottom:10px;border-radius:8px;}}
-.stars{{color:#ffc107;font-size:16px;}}
-.modal{{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.9);}}
-.modal-content{{margin:auto;display:block;max-width:90%;max-height:90%;margin-top:50px;}}
-.close{{position:absolute;top:20px;right:35px;color:white;font-size:40px;font-weight:bold;cursor:pointer;}}
-footer{{background:var(--header-bg);color:var(--text-light);padding:30px 0;text-align:center;margin-top:40px;}}
-@media (max-width:768px){{.header-main{{flex-direction:column;text-align:center;}}nav ul{{justify-content:center;}}.cards-grid{{grid-template-columns:1fr;}}.search-bar{{flex-direction:column;}}}}
-</style>
-</head>
-<body data-theme="{theme}">
-<script>
-function toggleTheme(){{fetch("/set_theme",{{method:"POST",headers:{{"Content-Type":"application/x-www-form-urlencoded"}},body:"theme="+(document.body.getAttribute("data-theme")==="dark"?"light":"dark")}}).then(()=>location.reload());}}
-</script>
-<header><div class="top-banner">🏡 Лянтор | Ваш надёжный партнёр в мире недвижимости</div>
-<div class="container header-main"><div class="logo-area"><div class="logo-icon">🏢</div><div class="logo-text"><h1>РИЭЛТОРСКОЕ АГЕНТСТВО</h1><h2>BY ГАУН</h2><div class="slogan">МЕСТО, ГДЕ ВЫ СТАНЕТЕ СОБОЙ</div></div></div>
-<nav><ul><li><a href="/">Главная</a></li><li><a href="/buy">🏠 Покупка</a></li><li><a href="/sell">📝 Продажа</a></li><li><a href="/compare">📊 Сравнение</a></li><li><a href="/favorites">❤️ Избранное</a></li><li><a href="/chat">💬 Чат</a></li><li><a href="/info">📊 Сведения</a></li><li><a href="/contacts">📞 Контакты</a></li></ul></nav>
-<div class="user-info">{theme_toggle}{user_html}</div></div></header>
-<main>{err_html}{suc_html}{content}</main>
-<footer><div class="container"><p>© 2025 Риэлторское агентство by Гаун | Лянтор</p></div></footer>
-<div id="imageModal" class="modal" onclick="closeModal()"><span class="close">&times;</span><img class="modal-content" id="modalImage"></div>
-<script>function openModal(src){{document.getElementById("modalImage").src=src;document.getElementById("imageModal").style.display="block";}}function closeModal(){{document.getElementById("imageModal").style.display="none";}}</script>
-</body>
-</html>'''
+    return HTML_TEMPLATE.format(
+        css=CSS_STYLES,
+        theme=theme,
+        theme_toggle=theme_toggle,
+        user_html=user_html,
+        error_html=error_html,
+        success_html=success_html,
+        content=content
+    )
 
 def get_user_from_session(request: Request):
     session_user = request.cookies.get("user_session")
@@ -1447,5 +1457,17 @@ if __name__ == "__main__":
     print("\n🔑 АДМИНИСТРАТОР:")
     print("   Логин: artem_gaun")
     print("   Пароль: Admin_321")
+    print("\n🎯 ФУНКЦИИ:")
+    print("   • Поиск и фильтрация")
+    print("   • Панель админа с графиками")
+    print("   • Избранное")
+    print("   • История просмотров")
+    print("   • Сравнение объектов")
+    print("   • Личные сообщения")
+    print("   • Счётчик просмотров")
+    print("   • Восстановление пароля")
+    print("   • Экспорт в Excel")
+    print("   • Подтверждение email")
+    print("   • Тёмная тема")
     print("="*60 + "\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)
