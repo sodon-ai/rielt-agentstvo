@@ -26,7 +26,7 @@ os.makedirs("data", exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Конфигурация почты (можно оставить пустым, если не используется)
+# Конфигурация почты
 EMAIL_CONFIG = {
     "smtp_server": "smtp.gmail.com",
     "smtp_port": 587,
@@ -54,7 +54,6 @@ DATA_FILES = {
 
 def send_email(to_email, subject, html_content):
     if not EMAIL_CONFIG["sender_email"] or not EMAIL_CONFIG["sender_password"]:
-        print("Email не настроен")
         return False
     try:
         msg = MIMEMultipart("alternative")
@@ -80,7 +79,6 @@ def send_verification_email(to_email, username, code):
     <p>Здравствуйте, {username}!</p>
     <p>Для завершения регистрации подтвердите ваш email, перейдя по ссылке:</p>
     <p><a href="https://rielt-agentstvo.onrender.com/verify_email?code={code}">Подтвердить email</a></p>
-    <p>С уважением,<br>Команда Агентства «by Гаун»</p>
     </body></html>
     """
     return send_email(to_email, "Подтверждение регистрации", html)
@@ -1449,17 +1447,5 @@ if __name__ == "__main__":
     print("\n🔑 АДМИНИСТРАТОР:")
     print("   Логин: artem_gaun")
     print("   Пароль: Admin_321")
-    print("\n🎯 ФУНКЦИИ:")
-    print("   • Поиск и фильтрация")
-    print("   • Панель админа с графиками")
-    print("   • Избранное")
-    print("   • История просмотров")
-    print("   • Сравнение объектов")
-    print("   • Личные сообщения")
-    print("   • Счётчик просмотров")
-    print("   • Восстановление пароля")
-    print("   • Экспорт в Excel")
-    print("   • Подтверждение email")
-    print("   • Тёмная тема")
     print("="*60 + "\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)
